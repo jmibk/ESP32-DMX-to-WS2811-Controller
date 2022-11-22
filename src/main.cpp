@@ -1,18 +1,22 @@
 #include <Arduino.h>
 #include <FastLED.h>
-#include <dmx.h>
-
-//COMMON
-TaskHandle_t Task1, Task2;
+#include <esp_dmx.h>
 
 //LED
 #define NUM_LEDS  100
-#define DATA_PIN  3
+#define DATA_PIN  13
 CRGB leds[NUM_LEDS];
 
 //DMX
+#define DMXtransmitPin 4
+#define DMXreceivePin 36
+#define DMXenablePin 16
+QueueHandle_t DMXqueue;
+unsigned int timer = 0;
+bool dmxIsConnected = false;
+dmx_port_t dmxPort = 1;
 uint16_t dmxAddress = 1;
-byte dmxChannels[512];
+byte dmxChannels[DMX_MAX_PACKET_SIZE];
 uint16_t dmxChannelIndex;
 struct deviceChannelsStruct{
   byte red;           //0 ... 255
@@ -25,10 +29,13 @@ struct deviceChannelsStruct{
 deviceChannelsStruct deviceChannels;
 byte hue;
 
-void task_leds( void * parameter ) {
-  Serial.print("started LED process on core number "+String(xPortGetCoreID()));
-  FastLED.addLeds<NEOPIXEL, DATA_PIN>(leds, NUM_LEDS);    //GRB ordering is assumed
-  for (;;) {
+//
+
+void task_leds(void*) {
+Serial.println("started LED process on core number "+String(xPortGetCoreID()));
+  //FastLED.addLeds<NEOPIXEL, DATA_PIN>(leds, NUM_LEDS);    //GRB ordering is assumed
+  FastLED.addLeds<WS2811,DATA_PIN, BRG>(leds, NUM_LEDS);
+  for(;;) {
     //NO EFFECT, RGB MODE (effect = 0 ... 9)
     if (deviceChannels.effect <= 9) {
       for (uint16_t i = 0; i < NUM_LEDS; i++){
@@ -40,7 +47,7 @@ void task_leds( void * parameter ) {
       for (uint16_t i = 0; i < NUM_LEDS; i++){
         leds[i] = CHSV(hue++,255,255);
         }
-      delay(map(deviceChannels.speed,0,255,50,0));
+      delay(map(deviceChannels.speed,0,255,500,0));
       }
 
     //DIM LEDS
@@ -51,16 +58,47 @@ void task_leds( void * parameter ) {
     }
   }
 
-void task_dmx( void * parameter ) {
-  Serial.print("started DMX process on core number "+String(xPortGetCoreID()));
-  DMX::Initialize();
+void task_dmx(void*) {
+Serial.println("started DMX process on core number "+String(xPortGetCoreID()));
+
+  dmx_config_t dmxConfig = DMX_DEFAULT_CONFIG;
+  dmx_param_config(dmxPort, &dmxConfig);
+  dmx_set_pin(dmxPort, DMXtransmitPin, DMXreceivePin, DMXenablePin);
+  int queueSize = 1;
+  int interruptPriority = 1;
+  dmx_driver_install(dmxPort, DMX_MAX_PACKET_SIZE, queueSize, &DMXqueue,
+                     interruptPriority);
+
   for (;;) {
-    if(DMX::IsHealthy()) {
-      dmxChannels[dmxChannelIndex] = DMX::Read(dmxChannelIndex+1);
-      dmxChannelIndex++;
-      if (dmxChannelIndex >= 512)
-        dmxChannelIndex = 0;
+    dmx_event_t packet;
+    if (xQueueReceive(DMXqueue, &packet, DMX_PACKET_TIMEOUT_TICK)) {
+      if (packet.status == DMX_OK) {
+       if (!dmxIsConnected) {
+        Serial.println("DMX connected!");
+        dmxIsConnected = true;
+        }
+      dmx_read_packet(dmxPort, dmxChannels, packet.size);
+      timer += packet.duration;
+      if (timer >= 1000000) {
+       Serial.printf("Start code is 0x%02X and slot 1 is 0x%02X\n",
+                      dmxChannels[0], dmxChannels[1]);
+        timer -= 1000000;
+        }
+      } 
+    else {
+      Serial.println("DMX error!");
       }
+    } 
+  else if (dmxIsConnected) {
+    Serial.println("DMX timed out! Uninstalling DMX driver...");
+    dmx_driver_delete(dmxPort);
+    while (true) yield();
+    }
+
+    //dmxChannels[dmxChannelIndex] = dmx.read(dmxChannelIndex+1);
+    //dmxChannelIndex++;
+    if (dmxChannelIndex >= 512)
+      dmxChannelIndex = 0;
 
     //move values to the device struct
     if (dmxAddress < (512-sizeof(deviceChannels))) {
@@ -76,29 +114,31 @@ void task_dmx( void * parameter ) {
     }
   }
 
-void setup() { 
+void setup() {
   //COMMON
-  Serial.begin(115200);
+  Serial.begin(115200); 
 
   //MULTITASKING
   xTaskCreatePinnedToCore(
-    task_leds,
-    "task_leds",
-    1000,
-    NULL,
-    1,
-    &Task1,
-    1);
+    task_leds,      //Function to implement the task 
+    "led",          //Name of the task
+    6000,           //Stack size in words 
+    NULL,           //Task input parameter 
+    0,              //Priority of the task 
+    NULL,           //Task handle.
+    0);             //Core where the task should run 
 
   xTaskCreatePinnedToCore(
-    task_dmx,
-    "task_dmx",
-    1000,
-    NULL,
-    1,
-    &Task2,
-    0);
+    task_dmx,      //Function to implement the task 
+    "led",          //Name of the task
+    6000,           //Stack size in words 
+    NULL,           //Task input parameter 
+    0,              //Priority of the task 
+    NULL,           //Task handle.
+    1);             //Core where the task should run   
   }
-        
-void loop() { 
+
+void loop() {
+  Serial.println(".");
+  delay(10000);
   }
