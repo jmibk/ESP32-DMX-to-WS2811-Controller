@@ -12,7 +12,6 @@ CRGB leds[NUM_LEDS];
 #define DMXreceivePin 36
 #define DMXenablePin 16
 QueueHandle_t DMXqueue;
-unsigned int timer = 0;
 bool dmxIsConnected = false;
 dmx_port_t dmxPort = 1;
 uint16_t dmxAddress = 1;
@@ -44,10 +43,16 @@ Serial.println("started LED process on core number "+String(xPortGetCoreID()));
       }
     //EFFECT1 (effect = 10 ... 19)
     else if (deviceChannels.effect <= 19) {
-      for (uint16_t i = 0; i < NUM_LEDS; i++){
-        leds[i] = CHSV(hue++,255,255);
+      for (int j = 0; j < 255; j++) {
+        for (uint16_t i = 0; i < NUM_LEDS; i++) {
+          leds[i] = CHSV(i - (j * 2), 255, 255); /* The higher the value 4 the less fade there is and vice versa */ 
+          }
+        FastLED.show();
+        delay(map(deviceChannels.speed,0,255,500,0));
+        if ( deviceChannels.effect >= 10 || deviceChannels.effect < 19)
+          break;
         }
-      delay(map(deviceChannels.speed,0,255,500,0));
+     
       }
 
     //DIM LEDS
@@ -78,12 +83,6 @@ Serial.println("started DMX process on core number "+String(xPortGetCoreID()));
         dmxIsConnected = true;
         }
       dmx_read_packet(dmxPort, dmxChannels, packet.size);
-      timer += packet.duration;
-      if (timer >= 1000000) {
-       Serial.printf("Start code is 0x%02X and slot 1 is 0x%02X\n",
-                      dmxChannels[0], dmxChannels[1]);
-        timer -= 1000000;
-        }
       } 
     else {
       Serial.println("DMX error!");
@@ -130,7 +129,7 @@ void setup() {
 
   xTaskCreatePinnedToCore(
     task_dmx,      //Function to implement the task 
-    "led",          //Name of the task
+    "dmx",          //Name of the task
     6000,           //Stack size in words 
     NULL,           //Task input parameter 
     0,              //Priority of the task 
@@ -139,6 +138,5 @@ void setup() {
   }
 
 void loop() {
-  Serial.println(".");
   delay(10000);
   }
