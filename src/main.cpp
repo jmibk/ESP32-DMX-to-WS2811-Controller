@@ -40,26 +40,29 @@ Serial.println("started LED process on core number "+String(xPortGetCoreID()));
       for (uint16_t i = 0; i < NUM_LEDS; i++){
         leds[i] = CRGB(deviceChannels.red,deviceChannels.green,deviceChannels.blue);
         }
+
+      FastLED.setBrightness(deviceChannels.intensity);  
+      FastLED.show(); 
       }
+
     //EFFECT1 (effect = 10 ... 19)
     else if (deviceChannels.effect <= 19) {
       for (int j = 0; j < 255; j++) {
         for (uint16_t i = 0; i < NUM_LEDS; i++) {
           leds[i] = CHSV(i - (j * 2), 255, 255); /* The higher the value 4 the less fade there is and vice versa */ 
           }
-        FastLED.show();
+        
         delay(map(deviceChannels.speed,0,255,500,0));
-        if ( deviceChannels.effect >= 10 || deviceChannels.effect < 19)
+        
+        FastLED.setBrightness(deviceChannels.intensity);
+        FastLED.show();
+
+        if ( deviceChannels.effect < 10 || deviceChannels.effect > 19)
           break;
         }
      
       }
 
-    //DIM LEDS
-    FastLED.setBrightness(deviceChannels.intensity);
-
-    //SHOW LED DATA
-    FastLED.show(); 
     }
   }
 
